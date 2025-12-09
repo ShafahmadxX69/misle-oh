@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Universal Luggage Form Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+      
+      body {
+        font-family: 'Inter', 'Noto Sans TC', 'Noto Sans SC', sans-serif;
+        color: black;
+      }
+
+      /* Custom print styles to ensure background colors (yellow inputs) print */
+      @media print {
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+        .no-print {
+          display: none;
+        }
+      }
+      
+      /* Excel-like input reset */
+      input, textarea {
+        outline: none;
+        background: transparent;
+        color: black;
+      }
+      
+      /* Solid borders for table */
+      .excel-table td, .excel-table th {
+        border: 1px solid #000;
+      }
+      .excel-table {
+        border: 2px solid #000;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "file-saver": "https://aistudiocdn.com/file-saver@^2.0.5",
+    "exceljs": "https://aistudiocdn.com/exceljs@^4.4.0",
+    "jszip": "https://aistudiocdn.com/jszip@^3.10.1"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

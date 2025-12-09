@@ -1,0 +1,5 @@
+{
+  "name": "SLGenerator",
+  "description": "A specialized tool to generate Stuffing List documents, matching specific Excel templates with strict formatting and layout requirements.",
+  "requestFramePermissions": []
+}
