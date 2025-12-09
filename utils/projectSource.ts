@@ -19,7 +19,8 @@ const PACKAGE_JSON = `{
     "file-saver": "^2.0.5",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/file-saver": "^2.0.7",
@@ -150,9 +151,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 )`;
 
-// Note: These files are hardcoded versions of what is currently in the app.
-// Ideally, this would be read from fs, but in this env we must reconstruct.
-
 const SRC_TYPES_TS = `export interface OrderItem {
   id: string;
   materialNo: string;
@@ -163,6 +161,7 @@ const SRC_TYPES_TS = `export interface OrderItem {
   customerPo: string;
   uliPo: string;
   brand: string;
+  sku?: string;
 }
 
 export interface FormData {
@@ -836,11 +835,17 @@ const SRC_APP_TSX = `import React, { useState } from 'react';
 import FormTable from './components/FormTable';
 import { FormData, INITIAL_DATA, OrderItem } from './types';
 import { generateExcel } from './services/excelService';
-import { Download, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { downloadProjectZip } from './utils/projectSource';
+import { processAutomation, calculateCUFTReport } from './services/macroService';
+import { Download, FileSpreadsheet, RefreshCw, FileCode, Play, Upload, Calculator } from 'lucide-react';
 
 const App: React.FC = () => {
   const [formData, setFormData] = useState<FormData>(INITIAL_DATA);
   const [isExporting, setIsExporting] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
+  const [siFile, setSiFile] = useState<File | null>(null);
+  const [indexFile, setIndexFile] = useState<File | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const handleFieldChange = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -879,42 +884,145 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDownloadSource = async () => {
+      if (!window.confirm("Download the full source code project (ZIP)?")) return;
+      setIsZipping(true);
+      try {
+          await downloadProjectZip();
+      } catch (error) {
+          console.error('Zip failed', error);
+          alert('Failed to generate project ZIP');
+      } finally {
+          setIsZipping(false);
+      }
+  };
+
   const handleReset = () => {
     if (window.confirm("Are you sure you want to reset the form?")) {
         setFormData(INITIAL_DATA);
+        setSiFile(null);
+        setIndexFile(null);
     }
+  };
+
+  const handleProcessMacros = async () => {
+    if (!siFile && !indexFile) {
+        alert("Please upload at least 'SI' file or 'Index.xlsx' to run processing.");
+        return;
+    }
+    
+    setIsProcessing(true);
+    try {
+        const newData = await processAutomation(formData, siFile, indexFile);
+        setFormData(newData);
+        alert("Automation (Macros) processed successfully!");
+    } catch (e) {
+        console.error("Macro Processing Failed", e);
+        alert("Processing Failed.");
+    } finally {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleCalculateCUFT = () => {
+    const report = calculateCUFTReport(formData);
+    alert(report);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header / Toolbar */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-sm no-print">
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50 px-6 py-4 flex flex-col md:flex-row md:items-center justify-between shadow-sm no-print gap-4">
         <div className="flex items-center gap-2">
             <div className="bg-blue-600 p-2 rounded-lg text-white">
                 <FileSpreadsheet size={24} />
             </div>
             <div>
                 <h1 className="text-xl font-bold text-gray-800">Luggage Form Generator</h1>
-                <p className="text-xs text-gray-500">Edit yellow cells directly matching the template</p>
+                <p className="text-xs text-gray-500">Edit yellow cells or upload SI/Index for automation</p>
             </div>
         </div>
+
+        {/* File Upload Section */}
+        <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-md border border-gray-200">
+             <div className="relative group">
+                <input 
+                    type="file" 
+                    id="siFile" 
+                    className="hidden" 
+                    accept=".xlsx, .xlsm"
+                    onChange={(e) => setSiFile(e.target.files?.[0] || null)}
+                />
+                <label 
+                    htmlFor="siFile"
+                    className={\`flex items-center gap-1 text-xs px-2 py-1 rounded cursor-pointer border \${siFile ? 'bg-green-100 border-green-300 text-green-800' : 'bg-white border-gray-300 text-gray-600'}\`}
+                >
+                    <Upload size={12} />
+                    {siFile ? siFile.name.substring(0, 10) + '...' : 'Upload SI'}
+                </label>
+             </div>
+             
+             <div className="relative group">
+                <input 
+                    type="file" 
+                    id="indexFile" 
+                    className="hidden" 
+                    accept=".xlsx, .xlsm"
+                    onChange={(e) => setIndexFile(e.target.files?.[0] || null)}
+                />
+                <label 
+                    htmlFor="indexFile"
+                    className={\`flex items-center gap-1 text-xs px-2 py-1 rounded cursor-pointer border \${indexFile ? 'bg-green-100 border-green-300 text-green-800' : 'bg-white border-gray-300 text-gray-600'}\`}
+                >
+                    <Upload size={12} />
+                    {indexFile ? indexFile.name.substring(0, 10) + '...' : 'Upload Index'}
+                </label>
+             </div>
+
+             <button 
+                onClick={handleProcessMacros}
+                disabled={isProcessing}
+                className="flex items-center gap-1 px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded text-xs font-semibold transition-colors"
+                title="Imports SI Data, Matches Colors/Materials from Index, and aggregates SO/PO"
+             >
+                <Play size={12} />
+                {isProcessing ? 'Processing...' : 'Run Macros'}
+             </button>
+        </div>
         
-        <div className="flex items-center gap-3">
+        {/* Actions */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCalculateCUFT}
+            className="p-2 text-gray-600 hover:text-blue-600 hover:bg-gray-100 rounded-full transition-colors"
+            title="Calculate CUFT"
+          >
+            <Calculator size={18} />
+          </button>
+
+          <button 
+            onClick={handleDownloadSource}
+            disabled={isZipping}
+            className="hidden md:flex items-center gap-2 px-3 py-2 text-gray-600 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors font-medium text-sm"
+            title="Download full project source code"
+          >
+             <FileCode size={16} />
+          </button>
+
           <button 
             onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium text-sm"
+            className="flex items-center gap-2 px-3 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors font-medium text-sm"
           >
             <RefreshCw size={16} />
-            Reset
           </button>
           
           <button 
             onClick={handleExport}
             disabled={isExporting}
-            className="flex items-center gap-2 px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium shadow-md disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           >
             <Download size={18} />
-            {isExporting ? 'Generating...' : 'Download .xlsx'}
+            {isExporting ? '...' : 'Export'}
           </button>
         </div>
       </header>
@@ -931,7 +1039,7 @@ const App: React.FC = () => {
 
       {/* Footer Instructions */}
       <footer className="bg-white border-t p-4 text-center text-sm text-gray-500 no-print">
-        <p>This tool mimics the "FORM STUFFING LIST" layout. Data is local to your browser session.</p>
+        <p>1. Upload <b>SI File</b> to populate items. 2. Upload <b>Index.xlsx</b> to match materials/colors. 3. Click <b>Run Macros</b>.</p>
         <p className="mt-1 text-xs">Generated files are compatible with Microsoft Excel and Google Sheets.</p>
       </footer>
     </div>
@@ -939,6 +1047,306 @@ const App: React.FC = () => {
 };
 
 export default App;`;
+
+const SRC_SERVICES_MACROSERVICE_TS = `import ExcelJS from 'exceljs';
+import { FormData, OrderItem } from '../types';
+
+// Helper to read an uploaded file into an ExcelJS Workbook
+const readWorkbook = async (file: File): Promise<ExcelJS.Workbook> => {
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(arrayBuffer);
+  return workbook;
+};
+
+// --- CUFT DICTIONARY (Ported from VBA) ---
+const getCUFT = (model: string, size: string): number | null => {
+  const cuftDict: Record<string, Record<string, number>> = {
+    "FQ832": { "21": 2.08, "22": 2.35, "26": 3.52, "29": 4.85 },
+    "FQ825": { "21": 2.08, "22": 2.35, "26": 3.52, "29": 4.85 },
+    "FR885": { "21": 2.08, "22": 2.35, "26": 3.52, "29": 4.85 },
+    "F1627": { "21": 1.95, "24": 2.55, "26": 3.36, "29": 4.59, "29.5": 4.65, "30": 5.45, "19": 1.818, "20": 1.818, "27": 4.391, "28": 4.391 },
+    "F1628": { "21": 1.95, "24": 2.55, "26": 3.36, "29": 4.59, "29.5": 4.65, "30": 5.45, "19": 1.818, "20": 1.818, "27": 4.391, "28": 4.391 },
+    "FR893": { "21": 2.15, "22": 2.37, "25": 3.78, "28": 5.5, "32": 5.79 },
+    "PP8": { "S": 1.95, "M": 3.88, "L": 5.89 },
+    "PP10": { "S": 1.94, "M": 3.9, "L": 5.85 },
+    "PP12": { "S": 1.88, "M": 3.21, "L": 5.1 },
+    "FJ616": { "16": 1.55, "19.5": 1.92, "20": 2.01, "21": 2.29, "24": 3.3, "29": 4.37, "31": 3.98, "32": 6.16 },
+    "FJ616-1": { "16": 1.55, "19.5": 1.92, "20": 2.01, "21": 2.29, "24": 3.3, "29": 4.37, "31": 3.98, "32": 6.16 },
+    "FK648": { "20": 1.93, "24": 3.11, "29": 4.16 },
+    "FK636": { "16": 1.5, "20": 2.01, "21": 2.11, "24": 3.71, "29": 4.38 },
+    "FK636-1": { "16": 1.5, "20": 2.01, "21": 2.11, "24": 3.71, "29": 4.38 },
+    "FL688": { "16": 1.42, "17": 1.59, "19": 2.47, "20": 2.06, "21": 2.24, "24": 3.29, "29": 4.7, "31": 4.18, "32": 6.38, "29.5": 4.63 },
+    "FL688-1": { "16": 1.42, "17": 1.59, "19": 2.47, "20": 2.06, "21": 2.24, "24": 3.29, "29": 4.7, "31": 4.18, "32": 6.38, "29.5": 4.63 },
+    "FL688-6": { "16": 1.42, "17": 1.59, "19": 2.47, "20": 2.06, "21": 2.24, "24": 3.29, "29": 4.7, "31": 4.18, "32": 6.38, "29.5": 4.63 },
+    "FH496": { "21": 2.09, "22": 2.2, "27": 3.91, "29": 4.83, "30": 4.83, "31": 5.68, "32": 5.75 },
+    "FR898": { "20": 2.47, "21": 2.12, "24": 3.53, "29": 4.7 },
+    "F1909": { "21.5": 2.17, "22": 2.38, "24": 3.3, "25": 3.79, "28": 5.5, "30": 5.78, "32": 5.8, "29": 4.95 },
+    "FG417": { "20": 2.08, "27": 3.98, "29": 4.71, "32": 5.75 },
+    "FQ819-1": { "19": 1.48, "21": 2.38, "26": 3.62, "29": 5.035 },
+    "FJ587-1": { "23": 2.22, "32": 4.8 },
+    "FBP01/": { "S#": 2.09, "M#": 4.2, "L#": 5.5, "24#": 2.78 },
+    "PFBP01": { "S#": 2.09, "M#": 4.2, "L#": 5.5, "24#": 2.78 },
+    "FL678": { "19.5": 1.64, "20": 1.74, "21": 1.73, "25": 3.14, "28": 4.2 },
+    "FQ822": { "19.5": 1.74, "20": 1.78, "21": 2.14, "25": 3.43, "28": 4.55, "31": 6.2 },
+    "FP763-1": { "20": 2.16, "29": 4.41 }
+  };
+
+  const cleanModel = model.toUpperCase();
+  const cleanSize = size.toUpperCase();
+
+  // Find matching key
+  const dictKey = Object.keys(cuftDict).find(k => cleanModel.includes(k.toUpperCase()));
+  if (dictKey && cuftDict[dictKey][cleanSize]) {
+    return cuftDict[dictKey][cleanSize];
+  }
+  return null;
+};
+
+// --- PROCESS LOGIC ---
+
+export const processAutomation = async (
+  currentData: FormData,
+  siFile: File | null,
+  indexFile: File | null
+): Promise<FormData> => {
+  let newData = { ...currentData };
+  let siWorkbook: ExcelJS.Workbook | null = null;
+  let indexWorkbook: ExcelJS.Workbook | null = null;
+
+  // 1. IMPORT SI DATA (Corresponds to ImportSIDataToSheet1)
+  if (siFile) {
+    try {
+      siWorkbook = await readWorkbook(siFile);
+      const wsSI = siWorkbook.getWorksheet("SI ") || siWorkbook.worksheets[0]; // Fallback to first sheet if "SI " not found
+
+      if (wsSI) {
+        let brandVal = "";
+        let destVal = "";
+
+        // Extract Header Info
+        wsSI.eachRow((row, rowNumber) => {
+          const colC = row.getCell(3).value?.toString().trim() || "";
+          const colI = row.getCell(9).value?.toString().trim() || "";
+          
+          if (colC === "CONTAINER") {
+            newData.containerQty = row.getCell(5).value?.toString() || ""; // E
+          }
+          if (colI === "INVOICE") {
+            newData.invFlowNo = row.getCell(10).value?.toString() || ""; // J
+          }
+          if (colC === "SHIPPING MARK") {
+            brandVal = row.getCell(5).value?.toString() || ""; // E
+          }
+          if (colI === "SHIP TO") {
+            destVal = row.getCell(10).value?.toString() || ""; // J
+          }
+        });
+
+        if (brandVal || destVal) {
+          newData.customer = \`\${brandVal} TO \${destVal}\`;
+        }
+
+        // Extract Items
+        const newItems: OrderItem[] = [];
+        let headerRow = 0;
+        
+        // Find Header Row
+        wsSI.eachRow((row, rowNumber) => {
+          if (row.getCell(5).value === "Item") {
+             headerRow = rowNumber;
+          }
+        });
+
+        if (headerRow > 0) {
+          // Map Headers
+          const headerValues: Record<string, number> = {};
+          const row = wsSI.getRow(headerRow);
+          row.eachCell((cell, colNumber) => {
+             headerValues[cell.value?.toString() || ""] = colNumber;
+          });
+
+          // Read Data
+          let currentRow = headerRow + 1;
+          while (wsSI.getCell(currentRow, headerValues["Item"]).value) {
+            const itemVal = wsSI.getCell(currentRow, headerValues["Item"]).value?.toString() || "";
+            const qtyCtn = wsSI.getCell(currentRow, headerValues["QTY CTN"]).value?.toString() || "";
+            const color = wsSI.getCell(currentRow, headerValues["COLOR"]).value?.toString() || "";
+            const po = wsSI.getCell(currentRow, headerValues["PO"]).value?.toString() || "";
+            const orderNo = wsSI.getCell(currentRow, headerValues["ORDER NO"]).value?.toString() || "";
+            
+            let sku = "";
+            if (headerValues["SKU"]) sku = wsSI.getCell(currentRow, headerValues["SKU"]).value?.toString() || "";
+            if (!sku && headerValues["PRODUCT_VARIANT"]) sku = wsSI.getCell(currentRow, headerValues["PRODUCT_VARIANT"]).value?.toString() || "";
+
+            newItems.push({
+              id: Math.random().toString(36).substr(2, 9),
+              materialNo: "", // Filled later
+              nameAndSpec: itemVal,
+              pcsPerCtn: "1 PCS",
+              totalCtnQty: qtyCtn,
+              description: color, // Temporary, will be replaced by ColorCode macro
+              customerPo: po,
+              uliPo: orderNo,
+              brand: brandVal,
+              sku: sku.trim()
+            });
+
+            currentRow++;
+          }
+          newData.items = newItems;
+        }
+      }
+    } catch (e) {
+      console.error("Error processing SI File", e);
+      alert("Error processing SI File. Check format.");
+    }
+  }
+
+  // 2. PROCESS INDEX LOGIC (ColorCode & MaterialNo)
+  if (indexFile && newData.items.length > 0) {
+    try {
+      indexWorkbook = await readWorkbook(indexFile);
+      const wsIndex = indexWorkbook.getWorksheet("Sheet1") || indexWorkbook.worksheets[0];
+
+      if (wsIndex) {
+        // Cache index data to avoid slow repeated lookups
+        const indexRows: any[] = [];
+        wsIndex.eachRow((row, rowNumber) => {
+            if (rowNumber < 2) return; // Skip header
+            indexRows.push({
+                materialNo: row.getCell(2).value?.toString().trim() || "", // B
+                model: row.getCell(3).value?.toString().trim().replace(/['"]/g, "") || "", // C
+                colorRaw: row.getCell(6).value?.toString().trim() || "", // F (e.g. "BLACK 1067...")
+                so: row.getCell(8).value?.toString().trim() || "", // H
+                colorMandarin: row.getCell(15).value?.toString().trim() || "", // O
+                colorP: row.getCell(16).value?.toString().trim().toLowerCase() || "" // P
+            });
+        });
+
+        // Loop through current items to apply logic
+        newData.items = newData.items.map(item => {
+            const soTemplate = item.uliPo.trim();
+            let modelTemplate = item.nameAndSpec.trim().replace(/['"]/g, "");
+            
+            // Logic from VBA: If strict structure, parse model
+            // Parsing model name logic is tricky, simplifying to basic trim for now, 
+            // but mimicking: split space, take last part if multiple parts exist
+            if (modelTemplate.includes(" ")) {
+                const parts = modelTemplate.split(" ");
+                modelTemplate = parts[parts.length - 1];
+            }
+
+            const colorCodeTemplate = item.description.trim().toLowerCase(); // Currently holds the raw color from SI
+            const skuCode = item.sku || "";
+
+            // Find Match
+            const match = indexRows.find(idx => {
+                let idxModel = idx.model;
+                if (idxModel.includes(" ")) {
+                     const parts = idxModel.split(" ");
+                     idxModel = parts[parts.length - 1];
+                }
+                
+                // VBA ColorCode Logic: Check if index colorP is inside the template color description
+                // The VBA: If Replace(colorPIndex, " ", "") = Replace(colorCodeTemplate, " ", "")
+                // But in \`ImportSI\`, description is set to \`wsSI...("COLOR")\`.
+                
+                // Let's try flexible matching for color
+                const colorMatch = idx.colorP && colorCodeTemplate.replace(/\\s/g, "").includes(idx.colorP.replace(/\\s/g, ""));
+                
+                return idx.so === soTemplate && idxModel === modelTemplate && colorMatch;
+            });
+
+            if (match) {
+                // Apply ColorCode Logic
+                const newDesc = skuCode ? \`\${match.colorMandarin} \${skuCode}\` : match.colorMandarin;
+                
+                // Apply MaterialNo Logic (simplified: usually matches same row)
+                const newMaterial = match.materialNo;
+
+                return {
+                    ...item,
+                    description: newDesc,
+                    materialNo: newMaterial
+                };
+            }
+            
+            // Second pass for MaterialNo specifically if exact color code match fails but SO/Model matches?
+            // VBA does separate loops, but generally they look for the same row.
+            // If no match found, keep original
+            return item;
+        });
+      }
+    } catch (e) {
+      console.error("Error processing Index File", e);
+      alert("Error processing Index File.");
+    }
+  }
+
+  // 3. AGGREGATE SO (VBA Sub SO)
+  const uniqueSOs = new Set<string>();
+  newData.items.forEach(item => {
+      if (item.uliPo) uniqueSOs.add(item.uliPo);
+  });
+  // Note: App maps poNo to "Order No / PO NO", usually ULI PO goes to H column, but the aggregated one goes to Header.
+  // VBA: ws.Range("C4").Value = soString (C4 is PO NO in Excel Template)
+  // App: poNo maps to C4.
+  if (uniqueSOs.size > 0) {
+      newData.poNo = Array.from(uniqueSOs).join("/");
+  }
+
+  // 4. AGGREGATE PO (VBA Sub PO) -> Customer PO
+  // VBA: ws.Range("E5").Value = poString (E5 is Remark in Excel Template)
+  // App: remark maps to E5 block.
+  // Logic: Aggregate Customer PO (Col G in items), ignore "Dok No"
+  const uniquePOs = new Set<string>();
+  newData.items.forEach(item => {
+      const val = item.customerPo?.trim();
+      if (val && !val.toLowerCase().includes("dok no")) {
+          uniquePOs.add(val);
+      }
+  });
+  if (uniquePOs.size > 0) {
+      newData.remark = Array.from(uniquePOs).join("/");
+  }
+
+  return newData;
+};
+
+// --- CUFT CALCULATION ---
+export const calculateCUFTReport = (data: FormData): string => {
+    let totalCUFT = 0;
+    
+    // Calculate per item
+    data.items.forEach(item => {
+        let modelSize = item.nameAndSpec.replace(/['"]/g, "").trim();
+        let sizePart = "";
+
+        // Extract Size
+        if (modelSize.includes("/")) {
+            const parts = modelSize.split("/");
+            sizePart = parts[parts.length - 1];
+        } else if (modelSize.includes("-")) {
+            const parts = modelSize.split("-");
+            sizePart = parts[parts.length - 1];
+        }
+
+        sizePart = sizePart.trim().toUpperCase();
+
+        // Identify Model from Dict Keys
+        // This is a simplified check, ideally needs the full dict keys from the VBA
+        // Re-using the getCUFT helper
+        const cuftVal = getCUFT(modelSize, sizePart);
+        
+        if (cuftVal) {
+             const qty = parseFloat(item.totalCtnQty) || 0;
+             totalCUFT += (cuftVal * qty);
+        }
+    });
+
+    return \`Total Calculated CUFT: \${totalCUFT.toFixed(2)}\`;
+};`;
 
 // --- ZIP Generation Logic ---
 
@@ -965,6 +1373,7 @@ export const downloadProjectZip = async () => {
       const services = src.folder('services');
       if (services) {
           services.file('excelService.ts', SRC_SERVICES_EXCELSERVICE_TS);
+          services.file('macroService.ts', SRC_SERVICES_MACROSERVICE_TS);
       }
 
       const components = src.folder('components');
